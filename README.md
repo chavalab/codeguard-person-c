@@ -1,147 +1,175 @@
-# GitHub Status Checks and Merge Protection
+# CodeGuard
 
-## Overview
+## Cloud-Based Security Scan Notification Platform
+
+CodeGuard is a cloud-native security notification platform built on AWS. The system processes security scan reports, generates automated notifications, and integrates with GitHub Pull Requests to provide developers with immediate feedback on security findings.
+
+The project demonstrates the use of AWS serverless services, event-driven architecture, infrastructure as code, and DevSecOps concepts.
+
+---
+
+# Project Architecture
+
+```text
+Security Scanner
+        │
+        ▼
+   report.json
+        │
+        ▼
+ Amazon S3 Bucket
+        │
+        ▼
+ S3 Event Notification
+        │
+        ▼
+ AWS Lambda (Notifier)
+        │
+ ┌──────┼───────────────┐
+ │      │               │
+ ▼      ▼               ▼
+
+SNS    GitHub PR     Status Check
+Email  Comment       (Optional)
+
+```
+
+---
+
+# Features
 
 CodeGuard currently performs the following actions automatically:
 
-* Reads security scan results from Amazon S3
+* Stores security scan reports in Amazon S3
+* Triggers AWS Lambda when a report is uploaded
+* Reads report and metadata files from S3
+* Generates security summaries
 * Sends SNS email notifications for high-severity findings
-* Posts scan summaries directly to GitHub Pull Requests
-
-In addition to these capabilities, CodeGuard has been designed to support GitHub Status Checks, allowing it to function as a security gate within a CI/CD pipeline.
-
-This feature is currently implemented in the Lambda source code but intentionally disabled.
+* Posts scan results directly to GitHub Pull Requests
+* Supports GitHub Status Checks (currently disabled)
+* Built entirely using Terraform Infrastructure as Code
 
 ---
 
-## Current Implementation Status
+# Repository Structure
 
-The helper function required to create GitHub Status Checks already exists in `lambda/index.mjs`:
+```text
+codeguard/
 
-```javascript
-async function createGitHubStatus(
-  sha,
-  state,
-  description
-) {
-  const owner = process.env.GITHUB_OWNER;
-  const repo = process.env.GITHUB_REPO;
-  const token = process.env.GITHUB_TOKEN;
-
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/statuses/${sha}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        state,
-        description,
-        context: "CodeGuard Security Scan"
-      })
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-}
-```
-
-The execution block is currently commented out:
-
-```javascript
-/*
-try {
-
-  await createGitHubStatus(
-    metadata.commitSha,
-    highCount > 0
-      ? "failure"
-      : "success",
-    highCount > 0
-      ? `${highCount} high severity findings detected`
-      : "No high severity findings detected"
-  );
-
-  console.log(
-    "GitHub status updated"
-  );
-
-} catch (err) {
-
-  console.error(
-    "GitHub status update failed:",
-    err.message
-  );
-
-}
-*/
+├── lambda/
+│   ├── index.mjs
+│   └── notifier.zip
+│
+├── sample-data/
+│   ├── metadata.json
+│   └── report.json
+│
+├── terraform/
+│   ├── provider.tf
+│   ├── versions.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── lambda.tf
+│   ├── s3.tf
+│   ├── s3-trigger.tf
+│   └── sns.tf
+│
+└── README.md
 ```
 
 ---
 
-## Why Is It Disabled?
+# AWS Services Used
 
-GitHub Status Checks require a valid commit SHA.
+## Amazon S3
 
-The current project workflow does not yet guarantee that every scan job contains a valid:
+Stores:
 
-```json
-{
-  "commitSha": "..."
-}
+* Security scan reports
+* Metadata files
+
+Example:
+
+```text
+jobs/demo001/report.json
+jobs/demo001/metadata.json
 ```
-
-value in `metadata.json`.
-
-Because the feature depends on upstream integration, the status check logic remains commented out until commit SHA propagation is finalized.
-
-This prevents invalid status updates during testing and demonstrations.
 
 ---
 
-## Required Metadata Structure
+## AWS Lambda
 
-To enable Status Checks, `metadata.json` must contain:
+Responsible for:
 
-```json
-{
-  "jobId": "demo001",
-  "repo": "chavalab/codeguard-demo",
-  "prNumber": 10,
-  "commitSha": "8f4b8f7d7d8f4b8f7d7d8f4b8f7d7d8f4b8f7d7d"
-}
+* Reading reports from S3
+* Reading metadata from S3
+* Generating notifications
+* Posting GitHub comments
+* Publishing SNS alerts
+* (Optional) Creating GitHub Status Checks
+
+Runtime:
+
+```text
+Node.js 20.x
 ```
-
-### Field Descriptions
-
-| Field     | Description                                   |
-| --------- | --------------------------------------------- |
-| jobId     | Unique scan identifier                        |
-| repo      | Repository name                               |
-| prNumber  | GitHub Pull Request number                    |
-| commitSha | Commit SHA associated with the PR head commit |
-
-The `commitSha` field is mandatory because GitHub Status Checks are attached to commits rather than pull requests.
 
 ---
 
-## Required Report Structure
+## Amazon SNS
+
+Used to send email notifications when:
+
+```text
+High Severity Findings > 0
+```
+
+Example Email:
+
+```text
+CodeGuard Security Scan Report
+
+Repository: chavalab/codeguard-demo
+
+Total Findings: 5
+High Severity: 2
+Medium Severity: 1
+Low Severity: 1
+
+Most Critical Finding:
+Hardcoded AWS key found
+
+Recommendation:
+Review and remediate immediately.
+```
+
+---
+
+# Sample Metadata Format
+
+The Lambda function expects metadata in the following format:
 
 ```json
 {
   "jobId": "demo001",
   "repo": "chavalab/codeguard-demo",
-  "commitSha": "abc123",
+  "prNumber": 10
+}
+```
+
+---
+
+# Sample Report Format
+
+```json
+{
+  "jobId": "demo001",
+  "repo": "chavalab/codeguard-demo",
   "summary": {
-    "total": 3,
-    "high": 1,
+    "total": 5,
+    "high": 2,
     "medium": 1,
-    "low": 1
+    "low": 2
   },
   "findings": [
     {
@@ -157,46 +185,244 @@ The `commitSha` field is mandatory because GitHub Status Checks are attached to 
 
 ---
 
-## Requirements to Enable Status Checks
+# GitHub Pull Request Integration
 
-The following requirements must be met:
+CodeGuard automatically posts scan summaries directly into Pull Requests.
 
-### 1. Metadata Must Include Commit SHA
+Example Comment:
 
-Every scan job must provide:
+```text
+CodeGuard Scan Results
 
-```json
-{
-  "commitSha": "<valid commit sha>"
-}
+Repository: chavalab/codeguard-demo
+
+Total Findings: 5
+
+High Severity: 2
+Medium Severity: 1
+Low Severity: 2
+
+Top Issue:
+Hardcoded AWS key found
 ```
 
-inside `metadata.json`.
+This allows developers to review security findings directly inside GitHub.
 
-### 2. GitHub Token Permissions
+---
 
-The GitHub Personal Access Token used by Lambda must have permission to:
+# Infrastructure Deployment
 
-* Read Pull Requests
-* Create Pull Request comments
-* Create Commit Statuses
+Terraform provisions:
 
-### 3. Uncomment Status Check Logic
+* S3 Bucket
+* SNS Topic
+* Lambda Function
+* Lambda IAM Permissions
+* S3 Event Notifications
 
-Inside `lambda/index.mjs`, uncomment the GitHub Status Check block.
-
-### 4. Redeploy Lambda
-
-After enabling the code:
+Deployment:
 
 ```bash
+cd terraform
+
+terraform init
+
 terraform plan
+
 terraform apply
 ```
 
-must be executed so the updated Lambda package is deployed.
+---
 
-### 5. Configure Branch Protection Rules
+# Lambda Deployment
+
+After modifying:
+
+```text
+lambda/index.mjs
+```
+
+Create deployment package:
+
+```bash
+cd lambda
+
+zip notifier.zip index.mjs
+```
+
+Redeploy:
+
+```bash
+cd ../terraform
+
+terraform apply
+```
+
+---
+
+# GitHub Status Checks and Merge Protection
+
+## Overview
+
+In addition to notifications and pull request comments, CodeGuard has been designed to support GitHub Status Checks.
+
+When enabled, CodeGuard can automatically pass or fail Pull Requests based on security findings.
+
+This allows the platform to function as a lightweight DevSecOps security gate.
+
+---
+
+## Current Implementation Status
+
+The helper function required to create GitHub Status Checks already exists in:
+
+```text
+lambda/index.mjs
+```
+
+However, the execution block is intentionally commented out.
+
+Example:
+
+```javascript
+/*
+try {
+
+  await createGitHubStatus(
+    metadata.commitSha,
+    highCount > 0
+      ? "failure"
+      : "success",
+    highCount > 0
+      ? `${highCount} high severity findings detected`
+      : "No high severity findings detected"
+  );
+
+} catch (err) {
+
+  console.error(err);
+
+}
+*/
+```
+
+Because the code is commented, GitHub Status Checks are currently disabled.
+
+The project currently:
+
+✅ Sends SNS notifications
+
+✅ Posts Pull Request comments
+
+❌ Does not block Pull Request merges
+
+---
+
+## Why It Is Disabled
+
+GitHub Status Checks require a valid commit SHA.
+
+The current project workflow does not yet guarantee that every scan job contains:
+
+```json
+{
+  "commitSha": "..."
+}
+```
+
+inside metadata.
+
+To avoid invalid GitHub API calls during demonstrations and testing, the functionality remains disabled.
+
+---
+
+## Required Metadata Structure for Status Checks
+
+```json
+{
+  "jobId": "demo001",
+  "repo": "chavalab/codeguard-demo",
+  "prNumber": 10,
+  "commitSha": "8f4b8f7d7d8f4b8f7d7d8f4b8f7d7d8f4b8f7d7d"
+}
+```
+
+Field meanings:
+
+| Field     | Purpose             |
+| --------- | ------------------- |
+| jobId     | Scan identifier     |
+| repo      | Repository name     |
+| prNumber  | Pull Request number |
+| commitSha | Head commit SHA     |
+
+---
+
+## Additional Report Requirement
+
+The report may also include:
+
+```json
+{
+  "commitSha": "abc123"
+}
+```
+
+for easier downstream processing.
+
+---
+
+## Steps Required to Enable Merge Protection
+
+### 1. Include commitSha in metadata.json
+
+Example:
+
+```json
+{
+  "commitSha": "abc123"
+}
+```
+
+---
+
+### 2. Ensure GitHub Token Permissions
+
+The GitHub Personal Access Token must allow:
+
+* Pull Request access
+* Commit Status access
+* Repository access
+
+---
+
+### 3. Uncomment Status Check Logic
+
+Inside:
+
+```text
+lambda/index.mjs
+```
+
+remove the comment block surrounding:
+
+```javascript
+createGitHubStatus(...)
+```
+
+---
+
+### 4. Redeploy Lambda
+
+```bash
+zip notifier.zip index.mjs
+
+terraform apply
+```
+
+---
+
+### 5. Configure GitHub Branch Protection
 
 Navigate to:
 
@@ -212,7 +438,7 @@ Enable:
 Require status checks before merging
 ```
 
-Then select:
+Select:
 
 ```text
 CodeGuard Security Scan
@@ -242,7 +468,7 @@ CodeGuard Security Scan ❌ Failed
 2 high severity findings detected
 ```
 
-GitHub will prevent the pull request from being merged.
+Pull Request merge will be blocked.
 
 ---
 
@@ -266,33 +492,43 @@ CodeGuard Security Scan ✅ Passed
 No high severity findings detected
 ```
 
-GitHub will allow the pull request to be merged.
+Pull Request merge will be allowed.
 
 ---
 
-## Security Benefits
+# Security Benefits
 
-Implementing GitHub Status Checks transforms CodeGuard from a notification system into an automated security gate.
+CodeGuard demonstrates several DevSecOps concepts:
 
-Benefits include:
-
-* Preventing vulnerable code from being merged
-* Enforcing security policies automatically
-* Integrating security directly into the CI/CD pipeline
-* Reducing manual reviewer effort
-* Mimicking enterprise DevSecOps workflows
+* Automated security notifications
+* Event-driven security workflows
+* Pull Request security feedback
+* Infrastructure as Code
+* Serverless architecture
+* Optional security gate enforcement
+* Integration between AWS and GitHub
 
 ---
 
-## Future Enhancement Summary
+# Future Enhancements
 
-The functionality is already partially implemented within the Lambda source code.
+Potential improvements include:
 
-The only remaining requirements are:
+* Multiple finding summaries
+* Rich HTML email reports
+* Slack notifications
+* DynamoDB scan history
+* Security dashboards
+* Multi-repository support
+* Automatic merge blocking using GitHub Status Checks
+* Integration with external scanners such as Trivy or SonarQube
 
-* Consistent availability of `commitSha`
-* Branch Protection configuration
-* Uncommenting the status check logic
-* Redeploying the Lambda
+---
 
-Once those requirements are met, CodeGuard can automatically block pull requests that contain high-severity security vulnerabilities.
+# Author
+
+Bala Asrith Chavala
+
+Northeastern University
+
+Cloud Computing / DevSecOps Project
