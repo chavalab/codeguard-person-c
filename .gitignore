@@ -1,7 +1,6 @@
 terraform/.terraform
 terraform/*.tfstate
 terraform/*.tfstate.backup
-terraform.tfvars
 lambda/notifier.zip
 .DS_Store
 **/.DS_Store
