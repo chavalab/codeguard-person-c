@@ -1,0 +1,21 @@
+{
+  "jobId": "demo001",
+  "repo": "chavalab/codeguard-demo",
+  "commitSha": "abc123",
+  "scannedAt": "2026-06-08T10:00:00Z",
+  "summary": {
+    "total": 4,
+    "high": 1,
+    "medium": 2,
+    "low": 1
+  },
+  "findings": [
+    {
+      "severity": "HIGH",
+      "type": "hardcoded-secret",
+      "file": "src/app.js",
+      "line": 10,
+      "message": "Hardcoded AWS key found"
+    }
+  ]
+}
